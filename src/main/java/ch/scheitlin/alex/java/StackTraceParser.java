@@ -14,15 +14,17 @@ public class StackTraceParser {
     // com.myPackage.myClass.myMethod(myClass.java:1)
     // component        example             allowed signs
     // ---------------- ------------------- ------------------------------------------------------------
+    // module name:     java.base           alphabetical / numbers
     // package name:    com.myPackage       alphabetical / numbers
     // class name:      myClass             alphabetical / numbers / $-sign for anonymous inner classes
-    // method name:     myMethod            alphabetical / numbers / $-sign for lambda expressions
+    // method name:     myMethod            alphabetical / numbers / $-sign for lambda expressions |
+    //                                      <init> for constructors / <clinit> for static initializers
     // file name:       myClass.java        alphabetical / numbers
     // line number:     1                   integer
 
     // The following lines show some example stack trace elements:
     // org.junit.Assert.fail(Assert.java:86)                                            // typical stack trace element
-    // sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)                      // native method
+    // java.base/sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)            // native method in module (JDK9+)
     // org.junit.runners.ParentRunner$1.schedule(ParentRunner.java:71)                  // anonymous inner classes
     // org.junit.runners.ParentRunner.access$000(ParentRunner.java:58)                  // lambda expressions
     // org.apache.maven.surefire.junit4.JUnit4TestSet.execute(JUnit4TestSet.java:53)    // numbers for package and class names
@@ -32,14 +34,14 @@ public class StackTraceParser {
     // to extract the components and '?:' is used to group the signs but not creating capture groups. Additionally, the
     // typical stack trace output has a leading tab and 'at ' before the stack trace element.
 
-    // ^\tat ((?:(?:[\d\w]*\.)*[\d\w]*))\.([\d\w\$]*)\.([\d\w\$]*)\((?:(?:([\d\w]*\.java):(\d*))|([\d\w\s]*))\)$
-    // group 1: package name
-    // group 2: class name
-    // group 3: method name
-    // group 4: file name | null
-    // group 5: line number | null
-    // group 6: null | string
-    private static String STACK_TRACE_LINE_REGEX = "^\\tat ((?:(?:[\\d\\w]*\\.)*[\\d\\w]*))\\.([\\d\\w\\$]*)\\.([\\d\\w\\$]*)\\((?:(?:([\\d\\w]*\\.java):(\\d*))|([\\d\\w\\s]*))\\)$";
+    // group 1: module name | null
+    // group 2: package name
+    // group 3: class name
+    // group 4: method name
+    // group 5: file name | null
+    // group 6: line number | null
+    // group 7: null | string
+    private static String STACK_TRACE_LINE_REGEX = "^\\tat (?:((?:[\\d\\w]*\\.)*[\\d\\w]*)/)?((?:(?:[\\d\\w]*\\.)*[\\d\\w]*))\\.([\\d\\w\\$]*)\\.([\\d\\w\\$]*|<init>|<clinit>)\\((?:(?:([\\d\\w]*\\.\\w+):(\\d*))|([\\d\\w\\s]*))\\)$";
     private static Pattern STACK_TRACE_LINE_PATTERN = Pattern.compile(STACK_TRACE_LINE_REGEX);
 
     /**
@@ -78,28 +80,35 @@ public class StackTraceParser {
             Matcher matcher = STACK_TRACE_LINE_PATTERN.matcher(lines[i]);
 
             if (matcher.matches()) {
-                String packageName = matcher.group(1);
-                String className = matcher.group(2);
-                String methodName = matcher.group(3);
+                String moduleName = null;
+                if (matcher.group(1) != null) {
+                    moduleName = matcher.group(1);
+                }
+                String packageName = matcher.group(2);
+                String className = matcher.group(3);
+                String methodName = matcher.group(4);
 
                 // pass null if no file information is available
                 String fileName = null;
-                if (matcher.group(4) != null) {
-                    fileName = matcher.group(4);
+                if (matcher.group(5) != null) {
+                    fileName = matcher.group(5);
                 }
 
                 // pass -1 if no line number information is available
                 int lineNumber = -1;
-                if (matcher.group(5) != null) {
-                    lineNumber = Integer.valueOf(matcher.group(5));
+                if (matcher.group(6) != null) {
+                    lineNumber = Integer.parseInt(matcher.group(6));
                 }
 
                 // pass -2 as if the method containing the execution point is a native method
-                if (matcher.group(6) != null && matcher.group(6).equals("Native Method")) {
+                if (matcher.group(7) != null && matcher.group(7).equals("Native Method")) {
                     lineNumber = -2;
                 }
 
                 StackTraceElement element = new StackTraceElement(
+                        null,
+                        moduleName,
+                        null,
                         packageName + "." + className,
                         methodName,
                         fileName,
@@ -107,10 +116,10 @@ public class StackTraceParser {
                 );
 
                 // check whether the parsed stack trace element corresponds to the original one
-                if (!("\tat " + element.toString()).equals(lines[i])) {
+                if (!("\tat " + element).equals(lines[i])) {
                     throw new Exception("ERROR: Stack trace line could not be parsed to StackTraceElement:\n" +
                             "\tOriginal stack trace line:\t" + lines[i] + "\n" +
-                            "\tParsed StackTraceElement:\t" + "\tat " + element.toString());
+                            "\tParsed StackTraceElement:\t" + "\tat " + element);
                 }
 
                 stackTraceLines.add(element);
