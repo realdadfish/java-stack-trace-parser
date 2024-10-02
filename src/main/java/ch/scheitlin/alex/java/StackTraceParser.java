@@ -105,10 +105,8 @@ public class StackTraceParser {
                     lineNumber = -2;
                 }
 
-                StackTraceElement element = new StackTraceElement(
-                        null,
+                StackTraceElement element = createStackTraceElement(
                         moduleName,
-                        null,
                         packageName + "." + className,
                         methodName,
                         fileName,
@@ -127,5 +125,55 @@ public class StackTraceParser {
         }
 
         return new StackTrace(firstLine, stackTraceLines);
+    }
+
+    private static StackTraceElement createStackTraceElement(
+            String moduleName,
+            String declaringClass,
+            String methodName,
+            String fileName,
+            int lineNumber
+    ) {
+        if (moduleName == null || !hasJDK9StackTraceElementConstructor()) {
+            return new StackTraceElement(
+                    declaringClass,
+                    methodName,
+                    fileName,
+                    lineNumber
+            );
+        }
+        return new StackTraceElement(
+                null,
+                moduleName,
+                null,
+                declaringClass,
+                methodName,
+                fileName,
+                lineNumber
+        );
+    }
+
+    private static Boolean hasJDK9StackTraceElementConstructor = null;
+
+    // On Android, even though it is in general JDK11+ compatible, this API has been
+    // left out, as there is no "module system" equivalent implemented on this platform.
+    private static boolean hasJDK9StackTraceElementConstructor() {
+        if (hasJDK9StackTraceElementConstructor == null) {
+            try {
+                StackTraceElement.class.getConstructor(
+                        String.class,
+                        String.class,
+                        String.class,
+                        String.class,
+                        String.class,
+                        String.class,
+                        Integer.TYPE
+                );
+                hasJDK9StackTraceElementConstructor = true;
+            } catch (NoSuchMethodException e) {
+                hasJDK9StackTraceElementConstructor = false;
+            }
+        }
+        return hasJDK9StackTraceElementConstructor;
     }
 }
